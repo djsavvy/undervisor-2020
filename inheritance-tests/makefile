@@ -9,6 +9,7 @@ assembly: test1
 	@clang++ -S -masm=intel -g -O0 test1.cpp
 
 memory_layout: test1
+	# awk scripts derived from https://stackoverflow.com/a/22222219/2378475
 	@clang++ -E test1.cpp > test1_preprocessed.cpp
 	@clang++ -cc1 -fdump-record-layouts -emit-llvm-only -cl-opt-disable -O0 test1_preprocessed.cpp \
 		| awk '/\*\*\* Dumping AST/{f=1} /^\s*$$/{f=0;print} f' \
