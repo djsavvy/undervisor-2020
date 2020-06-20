@@ -2,7 +2,7 @@
 runtests: test1
 	@./test1
 
-test1: test1.cpp simple.h virtual.h
+test1: test1.cpp *.h
 	@clang++ -Wall -g -O0 test1.cpp -o test1
 
 assembly: test1
