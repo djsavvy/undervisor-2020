@@ -62,7 +62,7 @@ void diamond_virtual_tests() {
 
     printf(
         "NOTE: Cannot cast between intermediate siblings DiamondVirtualIntermediate{1,2} via "
-        "virtual parent DiamondVirtualBase\n");
+        "virtual parent DiamondVirtualBase\n\n");
     printf("Casting between siblings through child:\n");
     DiamondVirtualIntermediate1* dvi1 = new DiamondVirtualIntermediate1();
     DiamondVirtualDerived* dvd = static_cast<DiamondVirtualDerived*>(dvi1);
