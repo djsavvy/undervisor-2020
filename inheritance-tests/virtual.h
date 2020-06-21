@@ -79,6 +79,31 @@ void virtual_stack_tests() {
     printf("\n");
 }
 
+static AbstractDerived1Derived1 g_ad1d1;
+
+void virtual_global_tests() {
+    printf("Global test using references:\n");
+    VirtualBase& vb = static_cast<VirtualBase&>(g_ad1d1);
+    printf(
+        "VALID: Casted global AbstractDerived1Derived1 g_ad1d1 (addr: %p) to "
+        "VirtualBase& vb (addr: %p)\n",
+        &g_ad1d1, &vb);
+    printf("g_ad1d1.pure_virt_method(6, 9): %d\n", g_ad1d1.pure_virt_method(6, 9));
+    printf("vb.pure_virt_method(6, 9): %d\n", vb.pure_virt_method(6, 9));
+    printf("g_ad1d1.virt_method(6, 9): %d\n", g_ad1d1.virt_method(6, 9));
+    printf("vb.virt_method(6, 9): %d\n", vb.virt_method(6, 9));
+
+    VirtualDerived1& vd1 = static_cast<VirtualDerived1&>(vb);
+    printf(
+        "INVALID: Casted global VirtualBase vb (addr: %p) down to "
+        "VirtualDerived1& vd1 (addr: %p)\n",
+        &vb, &vd1);
+    printf("vd1.vd1_extra_method().c_str(): %s\n", vd1.vd1_extra_method().c_str());
+    printf("vd1.vd1_extra_method2(): %" PRIu64 "\n", vd1.vd1_extra_method2());
+
+    printf("\n");
+}
+
 void virtual_tests() {
     printf("--------------- VIRTUAL TESTS ---------------\n\n");
 
@@ -100,6 +125,7 @@ void virtual_tests() {
     printf("\n");
 
     virtual_stack_tests();
+    virtual_global_tests();
 
     printf("--------------- END VIRTUAL TESTS ---------------\n\n");
 }
