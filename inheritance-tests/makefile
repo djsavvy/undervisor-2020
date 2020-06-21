@@ -1,24 +1,24 @@
 .PHONY: runtests
-runtests: test1
-	@./test1
+runtests: inheritance_tests
+	@./inheritance_tests
 
-test1: test1.cpp *.h
-	@clang++ -Wall -g -O0 test1.cpp -o test1
+inheritance_tests: inheritance_tests.cpp *.h
+	@clang++ -Wall -g -O0 inheritance_tests.cpp -o inheritance_tests
 
-assembly: test1
-	@clang++ -S -masm=intel -g -O0 test1.cpp
+assembly: inheritance_tests
+	@clang++ -S -masm=intel -g -O0 inheritance_tests.cpp
 
-memory_layout: test1
+memory_layout: inheritance_tests
 	# awk scripts derived from https://stackoverflow.com/a/22222219/2378475
-	@clang++ -E test1.cpp > test1_preprocessed.cpp
-	@clang++ -cc1 -fdump-record-layouts -emit-llvm-only -cl-opt-disable -O0 test1_preprocessed.cpp \
+	@clang++ -E inheritance_tests.cpp > inheritance_tests_preprocessed.cpp
+	@clang++ -cc1 -fdump-record-layouts -emit-llvm-only -cl-opt-disable -O0 inheritance_tests_preprocessed.cpp \
 		| awk '/\*\*\* Dumping AST/{f=1} /^\s*$$/{f=0;print} f' \
 		| awk '/\*\*\* Dumping AST/{f=1} f; /^\s*$$/{f=0}'
-	@rm test1_preprocessed.cpp test1_preprocessed.ll
+	@rm inheritance_tests_preprocessed.cpp
 
-pahole: test1
-	@pahole --verbose --exclude=std --exclude=__ test1
+pahole: inheritance_tests
+	@pahole --verbose --exclude=std --exclude=__ inheritance_tests
 
 .PHONY: clean
 clean:
-	@rm -rf *.out *.s test1
+	@rm -rf *.out *.s inheritance_tests
