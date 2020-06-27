@@ -20,7 +20,9 @@ memory_layout: inheritance_tests
 # For use in godbolt
 .PHONY: noheaders 
 noheaders: 
-	cat *.h inheritance_tests.cpp > noheaders.cpp
+	@awk '!/^#include "/' inheritance_tests.cpp > inheritance_tests_noheaders.cpp
+	@cat *.h inheritance_tests_noheaders.cpp > noheaders.cpp
+	@rm inheritance_tests_noheaders.cpp
 
 pahole: inheritance_tests
 	@pahole --verbose --exclude=std --exclude=__ inheritance_tests
