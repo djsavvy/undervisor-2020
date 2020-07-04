@@ -84,18 +84,33 @@ void stack_spiller() {
 void pathological_tests() {
     printf("--------------- \"PATHOLOGICAL\" TESTS ---------------\n\n");
 
-    printf("Invalid cast in if-statement condition:\n");
-    SimpleDerived1* sd1 = new SimpleDerived1();
-    SimpleBase* sb1 = new SimpleBase();
+    {
+        printf("Invalid cast in if-statement condition:\n");
+        SimpleDerived1* sd1 = new SimpleDerived1();
+        SimpleBase* sb1 = new SimpleBase();
 
-    // INVALID CASTS in both condition and body, but both gets compiled out
-    if (((void*)static_cast<SimpleDerived1*>(sb1)) == ((void*)sb1)) {
-        SimpleDerived1* sd2 = static_cast<SimpleDerived1*>(sb1);
-        printf("%d\n", sd2->sd2_member2[13]);
+        // INVALID CASTS in both condition and body, but both gets compiled out
+        if (((void*)static_cast<SimpleDerived1*>(sb1)) == ((void*)sb1)) {
+            SimpleDerived1* sd2 = static_cast<SimpleDerived1*>(sb1);
+            printf("%d\n", sd2->sd2_member2[13]);
+        }
+        printf("\n");
     }
-    printf("\n");
 
     stack_spiller();
+
+    {
+        printf("Pointers to pointers:\n");
+        VirtualDerived1* vd1 = new VirtualDerived1();
+        VirtualBase* vb1 = new VirtualDerived2();
+        VirtualBase** pvb1 = &vb1;
+        printf("VirtualBase** pvb1 (%p) points to VirtualBase* (%p)\n", pvb1, vb1);
+        VirtualDerived1* vd2 = static_cast<VirtualDerived1*>(*pvb1);
+        printf("INVALID: VirtualBase* *pvb1 (%p) casted to VirtualDerived1* vd2 (%p)\n", *pvb1, vd2);
+        *pvb1 = reinterpret_cast<VirtualDerived2*>(&vd1);
+        printf("INVALID: *pvb1 (%p) reinterpret_casted to VirtualDerived2* 
+        printf("\n");
+    }
 
     printf("--------------- END \"PATHOLOGICAL\" TESTS ---------------\n\n");
 }
