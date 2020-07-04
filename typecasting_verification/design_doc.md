@@ -1,6 +1,24 @@
 # Undervisor Typecasting Verification Design
 Savvy Raghuvanshi, under the guidance of James Mickens
 
+## Useful URLs
+
+https://docs.microsoft.com/en-us/cpp/standard-library/allocators?view=vs-2019
+https://docs.microsoft.com/en-us/cpp/standard-library/allocator-class?view=vs-2019
+https://duckduckgo.com/?q=c%2B%2B+replace+allocator&t=fpas&ia=about
+https://stackoverflow.com/questions/13263796/replace-standard-c-allocator
+http://gcc.gnu.org/onlinedocs/libstdc++/manual/memory.html#allocator.ext
+https://en.cppreference.com/w/cpp/memory/allocator
+https://en.cppreference.com/w/cpp/memory/new/operator_new
+https://www.codeproject.com/articles/1089905/a-custom-stl-std-allocator-replacement-improves-pe
+https://duckduckgo.com/?q=c%2B%2B+move+and+copy&t=fpas&ia=qa
+https://en.cppreference.com/w/cpp/language/move_assignment
+https://stackoverflow.com/questions/3106110/what-is-move-semantics#3109981
+https://duckduckgo.com/?q=c%2B%2B+copy+operator&t=fpas&ia=web
+https://en.cppreference.com/w/cpp/language/copy_assignment
+
+
+
 #### High level overview
 
 When compiling code, we collect type information metadata and keep track of code locations where objects are either created or casted between types. Then, at runtime, when one of these code locations is reached, the undervisor does the following:
