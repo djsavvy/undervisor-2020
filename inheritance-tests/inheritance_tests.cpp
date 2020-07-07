@@ -108,7 +108,7 @@ void pathological_tests() {
         VirtualDerived1* vd2 = static_cast<VirtualDerived1*>(*pvb1);
         printf("INVALID: VirtualBase* *pvb1 (%p) casted to VirtualDerived1* vd2 (%p)\n", *pvb1, vd2);
         *pvb1 = reinterpret_cast<VirtualDerived2*>(&vd1);
-        printf("INVALID: *pvb1 (%p) reinterpret_casted to VirtualDerived2* 
+        // printf("INVALID: *pvb1 (%p) reinterpret_casted to VirtualDerived2* 
         printf("\n");
     }
 

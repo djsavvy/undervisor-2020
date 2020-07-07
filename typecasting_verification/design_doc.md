@@ -44,7 +44,7 @@ Note that we can also always trivially cast from a class to itself.
 
 Therefore, to enumerate the valid target classes for casting from a given class A, we simply recursively enumerate all the valid target classes for all superclasses of A.
 
-__Note__: This enables us to make technically illegal casts. For instance, if a class A has a phantom child P and a derived child D, then we allow a cast from D to P, even though this is technically an invalid cast between sibling classes. However, since A and P share the same data layout, we claim that a cast from D to P will not create any typecasting vulnerabilities.
+__Note__: This enables us to make technically illegal casts. For instance, if a class A has a phantom child P and a derived child D, then we allow a cast from D to P, even though this is technically an invalid cast between sibling classes. However, since A and P share the same data layout, we claim (like the HexType authors) that a cast from D to P will not create any typecasting vulnerabilities.
 
 
 #### What code operations are we interested in?
