@@ -108,7 +108,7 @@ void pathological_tests() {
         VirtualDerived1* vd2 = static_cast<VirtualDerived1*>(*pvb1);
         printf("INVALID: VirtualBase* *pvb1 (%p) casted to VirtualDerived1* vd2 (%p)\n", *pvb1, vd2);
         *pvb1 = reinterpret_cast<VirtualDerived2*>(&vd1);
-        // printf("INVALID: *pvb1 (%p) reinterpret_casted to VirtualDerived2* 
+        // printf("INVALID: *pvb1 (%p) reinterpret_casted to VirtualDerived2*
         printf("\n");
     }
 
@@ -123,6 +123,20 @@ void pathological_tests() {
         sd1 = sd1_2; /* Copy-assignment operator */
         printf("Copy-assignment operator called: sd1 = sd1_2\n");
         printf("sd1.sd1_mem1: %d\n", sd1.sd1_member1);
+        printf("\n");
+    }
+
+    {
+        printf("Going through a void*:\n");
+        DiamondVirtualIntermediate1* dvi1 = new DiamondVirtualIntermediate1();
+        DiamondVirtualIntermediate2* dvi2 = static_cast<DiamondVirtualIntermediate2*>(static_cast<void*>(dvi1));
+        printf("INVALID: DiamondVirtualIntermediate1* vd1 (%p) static_casted through a void* to DiamondVirtualIntermediate2* vd2 (%p)\n", dvi1, dvi2);
+        printf("dvi1->dvb_shared_method().c_str(): %s\n", dvi1->dvb_shared_method().c_str());
+        printf("dvi2->dvb_shared_method().c_str(): %s\n", dvi2->dvb_shared_method().c_str());
+        printf("dvi1->dvi1_method(): %d\n", dvi1->dvi1_method());
+        printf("dvi2->dvi2_method(): %d\n", dvi2->dvi2_method());
+        printf("dvi2->dvi2_method6(): %d\n", dvi2->dvi2_method6());
+        printf("\n");
     }
 
     printf("--------------- END \"PATHOLOGICAL\" TESTS ---------------\n\n");
