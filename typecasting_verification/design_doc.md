@@ -53,16 +53,20 @@ When compiling code, we keep track of allocations and casting operations. Keepin
 
 ##### Allocations
 
-During compilation, we keep track of the following types of allocations:
+During compilation, we keep track of the following types of (de)allocations:
 - `new` allocations
-- placement new
+- placement new -- TODO: look into it!
 - `delete` operations
 - `new[]` and `delete[]` operations
+- move and copy constructors
 - stack allocations
 - global allocations
 - `malloc()` and `free()`
-- "move and copy operators" TODO: learn about these!
 - `reinterpret_cast`
+
+Note that memory allocated with `malloc()` or `calloc()` will have to be converted to an object type (if necessary) via `static_cast` (preferable) or `reinterpret_cast`. At the site of that cast, we keep track of what object type corresponds to that memory address.
+
+Note that the move and copy _assignment operators_ need not be tracked, since calling an assignment operator does not actually update the type of the underlying object.
 
 
 ##### Casts
