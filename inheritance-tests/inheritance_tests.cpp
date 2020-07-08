@@ -81,6 +81,12 @@ void stack_spiller() {
     printf("End stack spiller test.\n\n");
 }
 
+__attribute__((noinline))
+int simple_function_block() {
+    volatile SimpleBase* sb1 = new SimpleBase();
+    return sb1->sb_member1;
+}
+
 void pathological_tests() {
     printf("--------------- \"PATHOLOGICAL\" TESTS ---------------\n\n");
 
@@ -89,11 +95,21 @@ void pathological_tests() {
         SimpleDerived1* sd1 = new SimpleDerived1();
         SimpleBase* sb1 = new SimpleBase();
 
-        // INVALID CASTS in both condition and body, but both gets compiled out
+        // INVALID CASTS in both condition and body, but both get compiled out
         if (((void*)static_cast<SimpleDerived1*>(sb1)) == ((void*)sb1)) {
             SimpleDerived1* sd2 = static_cast<SimpleDerived1*>(sb1);
-            printf("%d\n", sd2->sd2_member2[13]);
+            printf("Looks like the condition check got compiled out! %d\n", sd2->sd2_member2[13]);
         }
+
+        {
+            DiamondVirtualIntermediate1* dvi1 = new DiamondVirtualIntermediate1();
+            dvi1->dvi1_mem1 = 32322;
+            // INVALID CAST in condition, still gets compiled out
+            if(static_cast<DiamondVirtualIntermediate2*>(static_cast<void*>(dvi1))->dvi2_method1() == dvi1->dvi1_method()) {
+                printf("INVALID cast in this condition got compiled out!\n");
+            }
+        }
+
         printf("\n");
     }
 
@@ -138,6 +154,53 @@ void pathological_tests() {
         printf("dvi2->dvi2_method6(): %d\n", dvi2->dvi2_method6());
         printf("\n");
     }
+
+    { 
+        printf("Calling destructor on an object allocated with new:\n");
+        SimpleDerived1* sd1 = new SimpleDerived1();
+        SimpleDerived2 sd2;
+        printf("Created SimpleDerived1* (%p) and SimpleDerived2 (addr: %p)\n", sd1, &sd2);
+        sd1->~SimpleDerived1();
+        printf("Just called: sd1->~SimpleDerived1()\n");
+        sd2.~SimpleDerived2();
+        printf("Just called: sd2.~SimpleDerived2()\n");
+        operator delete(sd1);
+        printf("Just called: operator delete(sd1)\n");
+        printf("Note that we cannot call: operator delete(&sd2), since it was not created with \"new\"\n");
+        printf("\n");
+    }
+
+    {
+        printf("Getting the address of operator new:\n");
+        printf("address of operator_new(std::size_t): %p\n", static_cast<void* (*)(std::size_t)>(&(operator new)));
+        printf("TODO: placement new, etc.?????????????\n");
+        printf("\n");
+    }
+
+    {
+        printf("Simple function block\n");
+        printf("simple_function_block(): %d\n", simple_function_block());
+        printf("\n");
+    }
+
+    {
+        printf("Different allocations within the same loop:\n");
+        printf("Allocated 4 pointers, alternating between VirtualDerived2* and VirtualDerived1*. Casting them all to VirtualDerived2*:\n");
+        void* pointers[4];
+        for (int i = 0; i < 4; ++i) {
+            if (i % 2 == 1) {
+                pointers[i] = new VirtualDerived1();
+            } else {
+                pointers[i] = new VirtualDerived2();
+            }
+        }
+        for(int i = 0; i < 4; ++i) {
+            printf("%s: pointers[%d]->vd2_extra_method2(): %" PRIu64 "\n", i %2 == 0 ? "VALID" : "INVALID", i, static_cast<VirtualDerived2*>(pointers[i])->vd2_extra_method2());
+        }
+        printf("\n");
+    }
+
+    printf("TODO: write a test for when there's no vtable pointer and we invalidly cast to the first member of a class.\n");
 
     printf("--------------- END \"PATHOLOGICAL\" TESTS ---------------\n\n");
 }

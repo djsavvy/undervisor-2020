@@ -8,7 +8,7 @@ class SimpleBase {
 public:
     int sb_member1;
     std::string sb_member2;
-    SimpleBase(){};
+    SimpleBase() : sb_member1(3){};
     ~SimpleBase(){};
 };
 
