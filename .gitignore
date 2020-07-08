@@ -1,3 +1,5 @@
 tags
 inheritance-tests/inheritance_tests
 inheritance-tests/noheaders.cpp
+inheritance-tests/static_objdump
+inheritance-tests/dynamic_objdump
