@@ -112,6 +112,19 @@ void pathological_tests() {
         printf("\n");
     }
 
+    {
+        printf("Fun with constructors and assignment operators:\n");
+        SimpleDerived1 sd1;
+        SimpleDerived1 sd1_2 = sd1; /* Copy constructor */
+        printf("SimpleDerived1 sd1_2 copy-constructed from SimpleDerived1 sd1\n");
+        sd1.sd1_member1 = 30;
+        printf("sd1.sd1_mem1: %d\n", sd1.sd1_member1);
+        printf("sd1_2.sd1_mem1: %d\n", sd1_2.sd1_member1);
+        sd1 = sd1_2; /* Copy-assignment operator */
+        printf("Copy-assignment operator called: sd1 = sd1_2\n");
+        printf("sd1.sd1_mem1: %d\n", sd1.sd1_member1);
+    }
+
     printf("--------------- END \"PATHOLOGICAL\" TESTS ---------------\n\n");
 }
 
