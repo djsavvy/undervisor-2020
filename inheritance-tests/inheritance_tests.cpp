@@ -155,7 +155,7 @@ void pathological_tests() {
         printf("\n");
     }
 
-    { 
+    {
         printf("Calling destructor on an object allocated with new:\n");
         SimpleDerived1* sd1 = new SimpleDerived1();
         SimpleDerived2 sd2;
@@ -180,6 +180,27 @@ void pathological_tests() {
     {
         printf("Simple function block\n");
         printf("simple_function_block(): %d\n", simple_function_block());
+        printf("\n");
+    }
+
+    {
+        printf("Reading the value of %%rip:\n");
+        // https://stackoverflow.com/a/19908182/2378475
+        void* rip;
+        asm volatile("leaq (%%rip), %[Var]" : [Var] "=r" (rip));
+        printf("%%rip: %p\n", rip);
+        asm volatile("leaq (%%rip), %[Var]" : [Var] "=r" (rip));
+        printf("%%rip: %p\n", rip);
+        asm volatile("leaq (%%rip), %[Var]" : [Var] "=r" (rip));
+        printf("%%rip: %p\n", rip);
+        asm volatile("leaq (%%rip), %[Var]" : [Var] "=r" (rip));
+        printf("%%rip: %p\n", rip);
+        asm volatile("leaq (%%rip), %[Var]" : [Var] "=r" (rip));
+        printf("%%rip: %p\n", rip);
+        asm volatile("leaq (%%rip), %[Var]" : [Var] "=r" (rip));
+        printf("%%rip: %p\n", rip);
+        asm volatile("leaq (%%rip), %[Var]" : [Var] "=r" (rip));
+        printf("%%rip: %p\n", rip);
         printf("\n");
     }
 
