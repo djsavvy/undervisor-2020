@@ -10,7 +10,7 @@ When compiling code, we collect type information metadata and [keep track](#what
 
 The actual type-casting verification strategy is taken from the [HexType paper](https://acmccs.github.io/papers/p2373-jeonA.pdf), while our contribution is the adaption of HexType's strategies to the undervisor. In particular, we address the following challenges:
 - Running type casting verification in a different address space from running client code
-- Running type casting verification with access only to the stream of executing instructions and register state of the target program
+- Running type casting verification with access only to the stream of executing instructions and register state of the target program (as opposed to full access to the program's memory)
 
 
 ## Compile-time Operations
@@ -28,11 +28,70 @@ Note that we can also always cast from a class to itself.
 
 Less trivially, a cast from an object to its first member is possible if they share the same base pointer (this requires the encapsulating object not to have a vtable pointer stored at its base). As far as I can tell, such a cast is not valid C++ and relies on implementation-defined (though de-facto standard) behavior. In light of this, we do not allow such casts; if this restriction is later lifted, we can specifically allow such casts.
 
-Therefore, to enumerate the valid target classes for casting from a given class A, we simply recursively enumerate all the valid target classes for all superclasses of A.
+Therefore, to enumerate the valid target classes for casting from a given class `A`, we simply recursively enumerate all the valid target classes for all superclasses of `A`.
 
 #### Technically illegal casts
 
-Note that we allow some technically illegal, but practically harmless, casts. For instance, if a class A has a phantom child P and a derived child D, then we allow a cast from D to P, even though this is technically an invalid cast between sibling classes. However, since A and P share the same data layout, we claim (like the HexType authors) that a cast from D to P will not create any typecasting vulnerabilities.
+Note that we allow some technically illegal, but practically harmless, casts. For instance, if a class `A` has a phantom child `P` and a derived child `D`, then we allow a cast from `D` to `P`, even though this is technically an invalid cast between sibling classes. However, since `A` and `P` share the same data layout, we claim (like the HexType authors) that a cast from `D` to `P` will not create any typecasting vulnerabilities.
+
+
+### What does it mean to actually "keep track" of a code operation?
+
+After initialization of a _dyad_ (i.e. combination of a top-half program and its bottom-half monitor), an undervisor's bottom-half program has access only to the registers of the top-half program, as well as a stream of instructions from the top-half as they execute. The undervisor's only ability to interface with top-half code is to prevent an instruction from retiring, consequently killing the program. Therefore, the monitor code is naturally event-driven, with events corresponding to instructions in the top-half and the output being a decision on whether to allow each instruction to retire.
+
+We wish to enforce some security properties --- namely, that the typecasts in the top-half source code are safe --- under these constraints. To that end, it is important for the bottom-half code to know where in the instruction stream these casts occur, what source and destination types are involved, and which object in memory is being casted.
+
+During the transformation from source code to machine instructions, we need to preserve the associations between this metadata and locations in the code. These associations are then loaded into the bottom half. During execution, as the instruction pointer (`%rip`) advances, the monitor checks if the instruction is "interesting", and if so it looks up the metadata and performs the desired verifications.
+
+One of the challenges of this research project is actually passing the information to the bottom-half about which `%rip` values are "interesting". Doing so requires invasive modifications to the build system, which we describe here.
+
+In summary, during compilation, we want to mark certain locations in the code as "interesting" and store some metadata about them that the undervisor will know at load-time.
+
+
+#### Working with the AST
+
+When the Clang compiler is invoked on a C++ program, it parses the source code into an [Abstract Syntax Tree](https://clang.llvm.org/docs/IntroductionToTheClangAST.html). The Clang AST is the right level of abstraction for us to mark interesting code locations --- if we operate on raw (or even pre-processed) source code, we might run into problems parsing complicated, nested expressions within a single line of code, like the following:
+```cpp
+if(static_cast<BadType*>(ptr*)->func()) { do_something(); }
+```
+At the same time, if we wait until further along the build pipeline to mark interesting code locations, we start clashing with optimizations --- most casts will be compiled into no-ops, and many function calls (like constructors) will be inlined. Thus, the code operations we are interested in marking may either disappear or be duplicated.
+
+To mark an interesting code operation, we wrap its AST node inside a new type of "undervisor node". As an example, consider the following line of code (line number 22 in the original source):
+```cpp
+    SimpleDerived1* sd1 = static_cast<SimpleDerived1*>(sb1);
+```
+In the Clang-generated AST, this statement translates to:
+```
+|-DeclStmt <line:22:5, col:60>
+| `-VarDecl <col:5, col:59> col:21 sd1 'SimpleDerived1 *' cinit
+|   `-CXXStaticCastExpr <col:27, col:59> 'SimpleDerived1 *' static_cast<class SimpleDerived1 *> <BaseToDerived (SimpleBase)>
+|     `-ImplicitCastExpr <col:56> 'SimpleBase *' <LValueToRValue> part_of_explicit_cast
+|       `-DeclRefExpr <col:56> 'SimpleBase *' lvalue Var 0x563044ce06f8 'sb1' 'SimpleBase *'
+```
+We simply wrap the cast in a new undervisor node:
+```
+|-DeclStmt <line:22:5, col:60>
+| `-VarDecl <col:5, col:59> col:21 sd1 'SimpleDerived1 *' cinit
+|   `-UndervisorStaticCast <col:27, col:59> sb1 to 'SimpleDerived1 *'
+|     `-CXXStaticCastExpr...
+```
+We also ensure that this node is _transparent_ to the compiler --- it does not affect optimizations or output any top-half instructions. Instead, it simply stores the metadata we want associated with the cast operation (in this case, the source variable and the destination type of the cast). Wherever code is duplicated or inlined, the node gets copied as well, and if its contents are optimized away it will contain an empty body but will not be deleted itself.
+
+Each instance of such a node will eventually be turned into an assembler directive in the code generation step's output. For instance, if the above undervisor node's body is optimized away, then the generated assembly will just be:
+```
+// static_cast (compiled to no-op)
+.undervisor.typecasting_verification.static_cast from_addr=%rbx to_type='SimpleDerived1 *'
+```
+In this example, `%rbx` is the register that contains the address of the source object to be casted, and `SimpleDerived1 *` is the destination type. If we wish to keep track of another code operation (such as a constructor or destructor), we simply adapt the generated undervisor AST node and assembler directive to contain the relevant metadata.
+
+The code generator's output (a `.S` file) will be passed to a bottom-half code generator, which will parse out the undervisor-specific directives and use them to construct the initial state of the monitor code (i.e. the set of valid typecasts, as well as interesting `%rip` values and their associated metadata). The top-half assembler will ignore these directives (more specifically, we can just strip them out with a simple shell script before invoking the assembler) and generate the top-half binary as usual.
+
+
+__TODO__: To keep track of constructors/destructors (address, type, etc.), ....
+
+##### Useful Links
+
+[Overview of Clang Internals](https://cppdepend.com/blog/?p=321)
 
 
 ### What code operations are we interested in?
@@ -56,7 +115,7 @@ During compilation, we keep track of the following types of (de)allocations:
 
 ##### New, Delete, Constructors, and Destructors
 
-When we use the `new` operator to make a [dynamic-duration](https://en.cppreference.com/w/cpp/language/storage_duration#Storage_duration) object (essentially an object on the heap), that translates to the compiler allocating some appropriately-sized memory using `operator new` (which is essentially similar to `malloc()` in that it allocates raw memory), and then calling the appropriate constructor.
+When we use the `new` operator to make a [dynamic-duration](https://en.cppreference.com/w/cpp/language/storage_duration#Storage_duration) object (essentially an object on the heap), that translates to the compiler allocating some appropriately-sized memory using `operator new` (which is essentially similar to `malloc()` in that it allocates raw memory), and then calling the appropriate constructor. Placement new is similar, but instead of allocating memory with `operator new`, it merely uses the memory location passed to it and calls the constructor there.
 
 Consider the following example program:
 ```cpp
@@ -106,12 +165,9 @@ main: # @main
   ret
 ```
 
-__TODO:__ add more/better code samples in this section
-
-
 Note that the constructor of `SimpleBase` is inlined, but the call to `operator new` is not. I believe that the call to `operator new` can never actually be inlined, since we need to link in the library containing it (`libstdc++`).
 
-Instead of tracing calls to `operator new` in the undervisor, we only track objects that have been initialized --- to that end, we track the terminations of all constructors. This allows us to avoid special-casing for different memory allocation systems, including bare `malloc()` or a memory-pool initialized with placement new.
+Instead of tracing calls to `operator new` in the undervisor, we only track objects that have been initialized --- to that end, we keep track of the _terminations_ of all constructors. This allows us to avoid special-casing for different memory allocation systems, including bare `malloc()` or a memory-pool initialized with placement new.
 
 When we reach the end of an executing constructor for an object, we create a mapping in the undervisor from the base address of that object to the type whose constructor just ran. If our bottom-half map already contains a different type associated with that base address, we raise an error condition and abort. Therefore, we maintain a canonical mapping from virtual top-half addresses to object types.
 
@@ -128,6 +184,9 @@ For a more detailed discussion on how we actually keep track of the instruction 
 Note that the move and copy _assignment operators_ need not be tracked, since calling an assignment operator does not actually update the type of the underlying object.
 
 Finally, we consider move and copy _constructors_ --- in both cases, we are essentially calling a constructor as in the standard case, but with some more specification regarding initial values of the created object. Copy constructors do not affect the source object ( __TODO__ : can this be overridden somehow? maybe with an evil `const_cast`), so we do not need to modify an undervisor mapping for the source object's address. Furthermore, move constructors operate on rvalues, so we do not need to worry about the source object ( __TODO__ : is this even true? It's possible that something like `std::move` might let us maul an lvalue).
+
+
+__TODO:__ add more/better code samples in this section
 
 
 ###### Alternate proposal: Static Linking Only
@@ -182,31 +241,13 @@ When we reach a casting instruction, we look up the mapping associated with the 
 __TODO__: possibly expand on this more
 
 
-### What does it mean to actually "keep track" of a code operation?
-
-It feels like the right level of abstraction to work at is the Clang AST, since we can avoid problems like parsing very complicated statements in source code (i.e. a cast inside an `if()` condition, like in the following code block).
-```cpp
-if(static_cast<BadType*>(ptr*)->func()) { do_something(); }
-```
-At the same time, if we process further along the build process than Clang's AST, we start clashing with optimizations --- most casts will be compiled into no-ops, and many function calls (like constructors) will be inlined.
-
-To keep track of an allocation or cast, we essentially store the address of the instruction pointer (`rip`) where that operation completes. To accomplish this, we manipulate Clang's Abstract Syntax Tree. We place every constructor, destructor, and casting operation inside a new type of "undervisor node" in the AST. In a sense, this node is transparent to the compiler for the top half --- it does not affect optimizations or output any top-half instructions. Instead, this node just stores the metadata we want associated with that operation (e.g. the register where a cast's source address is stored, and the type we wish to cast it to). Wherever code is duplicated or inlined, the node gets copied as well (and modified as necessary), and if its contents are optimized away it will contain an empty body but will not be deleted itself. Each instance of such a node will eventually be turned into a label/directive in the assembler's output. The top-half linker will then ignore these labels/directives, but the bottom-half compiler will convert them into an event-driven state machine suitable for being run on the undervisor.
-
-__TODO__: To keep track of arguments to a function, (no longer necessary?) ....
-
-__TODO__: To keep track of source/destination types of a cast, ....
-
-__TODO__: To keep track of constructors/destructors (address, type, etc.), ....
-
-For instance, (TODO: code examples)
-
-
-
 ## Limitations, Questions, and Future Work
 
 NESTED OBJECTS??? If a class doesn't have a vtable (e.g. `SimpleDerived3` and `SimpleDerived2`), then the base pointer of its first member variable is the same as the base pointer for the whole object itself!!
 
 [Dealing with position-independent code (needed for ASLR), as well as dynamic linking.](#alternate-proposal-static-linking-only)
+
+NOT Multithreading safe
 
 Will this approach work for folks who override `operator new` either globally or for a specific class?
 
@@ -218,11 +259,11 @@ Overloaded assignment operators (like between multiple classes)?
 
 Avoiding double indirections!
 
-Write up (dis)advantages with respect to Caver/HexType
-
 Smart pointers???
 
-Do C-style casts get translated into either `const_cast`, `static_cast`, or `reinterpret_cast`, in the Clang AST?
+- Write up (dis)advantages with respect to Caver/HexType
+
+- Do C-style casts get translated into either `const_cast`, `static_cast`, or `reinterpret_cast`, in the Clang AST?
 
 ## Other Notes
 
