@@ -4,7 +4,7 @@ By [__Savvy Raghuvanshi__](https://savvy.bio), under the guidance of [__Prof. Ja
 
 ## High level overview
 
-When compiling code, we collect type information metadata and [keep track](#keeptrack) of code locations where objects are either created or casted between types. Then, at runtime, when one of these code locations is reached, the undervisor does the following:
+When compiling code, we collect type information metadata and [keep track](#what-does-it-mean-to-actually-keep-track-of-a-code-operation) of code locations where objects are either created or casted between types. Then, at runtime, when one of these code locations is reached, the undervisor does the following:
 - If the instruction corresponds to an allocation, it stores a mapping, where the key is the address of the allocated object and the value is the type of the allocated object
 - If the instruction corresponds to a casting, the undervisor checks whether the source and destination types form a valid cast and terminates the top-half code if not.
 
@@ -37,7 +37,7 @@ Note that we allow some technically illegal, but practically harmless, casts. Fo
 
 ### What code operations are we interested in?
 
-When compiling code, we [keep track](#keeptrack) of allocations and casting operations. Keeping track of allocations allows the undervisor to glean information about the type of each allocated object and track this information throughout program execution. Keeping track of casting operations is necessary for the undervisor to know when to actually perform runtime typecasting checks.
+When compiling code, we [keep track](#what-does-it-mean-to-actually-keep-track-of-a-code-operation) of allocations and casting operations. Keeping track of allocations allows the undervisor to glean information about the type of each allocated object and track this information throughout program execution. Keeping track of casting operations is necessary for the undervisor to know when to actually perform runtime typecasting checks.
 
 
 #### Allocations
@@ -123,14 +123,14 @@ Note that while our approach ensures we can initialize all of an object's member
 
 We proceed similarly in the destructor case --- if a destructor is called on a specific base address, we check if it is compatible with (i.e. the same class, its base class, or the first member's class) its mapping in the undervisor. If the mapping is incompatible or doesn't exist, we abort. Otherwise, we continue normally. Note that since [destructors run in the opposite order of construction in inheritance](https://isocpp.org/wiki/faq/multiple-inheritance#mi-vi-dtor-order), we remove an address' mapping in the undervisor only when its most ancestral class' destructor completes.
 
-For a more detailed discussion on how we actually keep track of the instruction pointer values where {con,de}structors begin and end, see [Keep Track](#keeptrack).
+For a more detailed discussion on how we actually keep track of the instruction pointer values where {con,de}structors begin and end, see [Keep Track](#what-does-it-mean-to-actually-keep-track-of-a-code-operation).
 
 Note that the move and copy _assignment operators_ need not be tracked, since calling an assignment operator does not actually update the type of the underlying object.
 
 Finally, we consider move and copy _constructors_ --- in both cases, we are essentially calling a constructor as in the standard case, but with some more specification regarding initial values of the created object. Copy constructors do not affect the source object ( __TODO__ : can this be overridden somehow? maybe with an evil `const_cast`), so we do not need to modify an undervisor mapping for the source object's address. Furthermore, move constructors operate on rvalues, so we do not need to worry about the source object ( __TODO__ : is this even true? It's possible that something like `std::move` might let us maul an lvalue).
 
 
-###### <a name="static_only"></a>Alternate proposal: Static Linking Only
+###### Alternate proposal: Static Linking Only
 
 Note that if we statically link with `libstdc++`, then we know the virtual address of that call to `operator new` straight from the executable (as well as all of its instructions) before the program is even loaded, and we can prepare the undervisor to watch for a `%rip` equalling that address during top-half execution.
 
@@ -152,7 +152,7 @@ Note that memory allocated with `malloc()` or `calloc()` has to be converted to 
 
 At the site of that cast (or the calling of the constructor via placement new), we keep track of what object type corresponds to that memory address in the usual way.
 
-Notably, we can also easily avoid use-after-free bugs if we [keep track](#keeptrack) of the arguments to and return values from calls to `malloc()` and `free()`.
+Notably, we can also easily avoid use-after-free bugs if we [keep track](#what-does-it-mean-to-actually-keep-track-of-a-code-operation) of the arguments to and return values from calls to `malloc()` and `free()`.
 
 
 ##### Stack and Global Allocations
@@ -169,7 +169,7 @@ In the undervisor, when we come across a `static_cast` or `reinterpret_cast`, we
 On the other hand, if the source address is currently untracked (and we are casting to some object type), we assume that the cast is creating a new object from memory that was somehow previously allocated. In this case, we add a mapping to the undervisor from the given address to the destination type. If the destination type of the cast is a builtin like `char*` or `int*`, we ignore the cast and do not create an entry in the undervisor's map.
 
 
-#### <a name="casts"></a>Casts
+#### Casts
 
 We keep track of the following types of casts:
 - `static_cast`
@@ -182,7 +182,7 @@ When we reach a casting instruction, we look up the mapping associated with the 
 __TODO__: possibly expand on this more
 
 
-### <a name="keeptrack"></a>What does it mean to actually "keep track" of a code operation?
+### What does it mean to actually "keep track" of a code operation?
 
 It feels like the right level of abstraction to work at is the Clang AST, since we can avoid problems like parsing very complicated statements in source code (i.e. a cast inside an `if()` condition, like in the following code block).
 ```cpp
@@ -206,7 +206,7 @@ For instance, (TODO: code examples)
 
 NESTED OBJECTS??? If a class doesn't have a vtable (e.g. `SimpleDerived3` and `SimpleDerived2`), then the base pointer of its first member variable is the same as the base pointer for the whole object itself!!
 
-[Dealing with position-independent code (needed for ASLR), as well as dynamic linking.](#static_only)
+[Dealing with position-independent code (needed for ASLR), as well as dynamic linking.](#alternate-proposal-static-linking-only)
 
 Will this approach work for folks who override `operator new` either globally or for a specific class?
 
