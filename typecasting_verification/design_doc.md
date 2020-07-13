@@ -106,8 +106,6 @@ In this example, `%rbx` is the register that contains the address of the source 
 The code generator's output (a `.S` file) will be passed to a bottom-half code generator, which will parse out the undervisor-specific directives and use them to construct the initial state of the monitor code (i.e. the set of valid typecasts, as well as interesting `%rip` values and their associated metadata). The top-half assembler will ignore these directives (more specifically, we can just strip them out with a simple shell script before invoking the assembler) and generate the top-half binary as usual.
 
 
-__TODO__: To keep track of constructors/destructors (address, type, etc.), ....
-
 ##### Useful Links
 
 [Overview of Clang Internals](https://cppdepend.com/blog/?p=321)
@@ -186,7 +184,7 @@ main: # @main
 
 Note that the constructor of `SimpleBase` is inlined, but the call to `operator new` is not. I believe that the call to `operator new` can never actually be inlined, since we need to link in the library containing it (`libstdc++`).
 
-Instead of tracing calls to `operator new` in the undervisor, we only track objects that have been initialized --- to that end, we keep track of the _terminations_ of all constructors. This allows us to avoid special-casing for different memory allocation systems, including bare `malloc()` or a memory-pool initialized with placement new.
+Instead of tracing calls to `operator new` in the undervisor, we only track objects that have been initialized --- to that end, we [keep track](#what-does-it-mean-to-actually-keep-track-of-a-code-operation) of the _terminations_ of all constructors. This allows us to avoid special-casing for different memory allocation systems, including bare `malloc()` or a memory-pool initialized with placement new.
 
 When we reach the end of an executing constructor for an object, we create a mapping in the undervisor from the base address of that object to the type whose constructor just ran. If our bottom-half map already contains a different type associated with that base address, we raise an error condition and abort. Therefore, we maintain a canonical mapping from virtual top-half addresses to object types.
 
@@ -194,11 +192,67 @@ However, there is the complication that objects from two different classes might
 
 This approach ensures that our undervisor address-to-type map always contains the most specific, valid type that each object was allocated as. This property is critical to prevent both false negatives and false positives in our typecasting verification.
 
-Note that while our approach ensures we can initialize all of an object's member fields in the constructor, we must watch out for the specific scenario where we need to re-initialize the first member field of an object after the constructor for the enclosing object has already completed ( __TODO__ : really need a code example here). To prevent false positives in our typecasting verification, we ignore the invocation of any such constructor (i.e. that of the first member field or base object, if it shares the base pointer with the enclosing object) and do not change the underlying type mapped to that address.
+Note that while our approach ensures we can initialize all of an object's member fields in the constructor, we must watch out for the specific scenario where we need to re-initialize the first member field of an object after the constructor for the enclosing object has already completed, such as in the following (unidiomiatic) code example:
+```cpp
+#include <cstddef>
+#include <cstdio>
+#include <new>
+
+struct ExternalMemory {
+    ExternalMemory(size_t size) : memloc(new char[size]), size(size) {}
+    ~ExternalMemory() { delete[] memloc; }
+    size_t size;
+    char* memloc;
+};
+
+class HardwareManager {
+public:
+    HardwareManager() : removable(1000), present(true) {};
+    void remove() {
+        if(present) removable.~ExternalMemory();
+        present = false;
+    }
+    void add() {
+        if(!present) removable = *(new(&removable) ExternalMemory(2000));
+        present = true;
+    }
+    void print() {
+        printf("Hardware Manager: ");
+        if(present) {
+            printf("\"removable\" present: size %lu\n", removable.size);
+        } else {
+            printf("\"removable\" not present.\n");
+        }
+    }
+private:
+    ExternalMemory removable;
+    bool present;
+};
+
+int main() {
+    auto hwm = new HardwareManager();
+    hwm->print();
+    hwm->remove();
+    hwm->print();
+    hwm->add();
+    hwm->print();
+}
+```
+The output is as follows:
+```cpp
+Hardware Manager: "removable" present: size 1000
+Hardware Manager: "removable" not present.
+Hardware Manager: "removable" present: size 2000
+```
+Note that in the above example, the first member variable of `hwm` has both its destructor and constructor called after `hwm` has already been initialized.
+
+To prevent false positives in our typecasting verification in such scenarios, we ignore the invocation of any such constructor (i.e. that of the first member field or base object, if it shares the base pointer with the enclosing object) and do not change the underlying type mapped to that address.
 
 We proceed similarly in the destructor case --- if a destructor is called on a specific base address, we check if it is compatible with (i.e. the same class, its base class, or the first member's class) its mapping in the undervisor. If the mapping is incompatible or doesn't exist, we abort. Otherwise, we continue normally. Note that since [destructors run in the opposite order of construction in inheritance](https://isocpp.org/wiki/faq/multiple-inheritance#mi-vi-dtor-order), we remove an address' mapping in the undervisor only when its most ancestral class' destructor completes.
 
-For a more detailed discussion on how we actually keep track of the instruction pointer values where {con,de}structors begin and end, see [Keep Track](#what-does-it-mean-to-actually-keep-track-of-a-code-operation).
+__Note__: Our design properly handles deleted [constructors](https://stackoverflow.com/questions/13654927/why-explicitly-delete-the-constructor) and [destructors](https://stackoverflow.com/questions/18847739/how-does-delete-on-destructor-prevent-stack-allocation) --- an object cannot have all of its constructors deleted in C++ and still be instantiated, or the program will not compile. Similarly, if a class' destructor is deleted, objects of that class can never be destroyed, and we do not have to remove any such mappings (from addresses of the objects to their type) from the bottom half at runtime.
+
+The metadata we need to keep track of for constructors and destructors are simply the type and address being operated on. For a more detailed discussion on how we actually keep track of the instruction pointer values where constructors and destructors begin and end, see [Keep Track](#what-does-it-mean-to-actually-keep-track-of-a-code-operation).
 
 Note that the move and copy _assignment operators_ need not be tracked, since calling an assignment operator does not actually update the type of the underlying object.
 
@@ -283,6 +337,9 @@ Smart pointers???
 - Write up (dis)advantages with respect to Caver/HexType
 
 - Do C-style casts get translated into either `const_cast`, `static_cast`, or `reinterpret_cast`, in the Clang AST?
+
+- We do not deal with inline asm LOL
+
 
 ## Other Notes
 
