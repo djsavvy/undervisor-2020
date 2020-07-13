@@ -106,9 +106,10 @@ In this example, `%rbx` is the register that contains the address of the source 
 The code generator's output (a `.S` file) will be passed to a bottom-half code generator, which will parse out the undervisor-specific directives and use them to construct the initial state of the monitor code (i.e. the set of valid typecasts, as well as interesting `%rip` values and their associated metadata). The top-half assembler will ignore these directives (more specifically, we can just strip them out with a simple shell script before invoking the assembler) and generate the top-half binary as usual.
 
 
-##### Useful Links
+##### More Useful Links
 
 [Overview of Clang Internals](https://cppdepend.com/blog/?p=321)
+[LLVM Debugging Information Format](http://llvm.org/docs/SourceLevelDebugging.html#debugging-information-format)
 
 
 ### What code operations are we interested in?
@@ -184,7 +185,7 @@ main: # @main
 
 Note that the constructor of `SimpleBase` is inlined, but the call to `operator new` is not. I believe that the call to `operator new` can never actually be inlined, since we need to link in the library containing it (`libstdc++`).
 
-Instead of tracing calls to `operator new` in the undervisor, we only track objects that have been initialized --- to that end, we [keep track](#what-does-it-mean-to-actually-keep-track-of-a-code-operation) of the _terminations_ of all constructors. This allows us to avoid special-casing for different memory allocation systems, including bare `malloc()` or a memory-pool initialized with placement new.
+Instead of tracing calls to `operator new` in the undervisor, we only track objects that have been initialized --- to that end, we [keep track](#what-does-it-mean-to-actually-keep-track-of-a-code-operation) of the _terminations_ of all constructors. This allows us to avoid special-casing for different memory allocation systems, including bare `malloc()` or a memory-pool initialized with placement new. Our design also allows for safe tracking of object types for users who have overridden `operator new` either globally or for a specific class.
 
 When we reach the end of an executing constructor for an object, we create a mapping in the undervisor from the base address of that object to the type whose constructor just ran. If our bottom-half map already contains a different type associated with that base address, we raise an error condition and abort. Therefore, we maintain a canonical mapping from virtual top-half addresses to object types.
 
@@ -256,10 +257,13 @@ The metadata we need to keep track of for constructors and destructors are simpl
 
 Note that the move and copy _assignment operators_ need not be tracked, since calling an assignment operator does not actually update the type of the underlying object.
 
-Finally, we consider move and copy _constructors_ --- in both cases, we are essentially calling a constructor as in the standard case, but with some more specification regarding initial values of the created object. Copy constructors do not affect the source object ( __TODO__ : can this be overridden somehow? maybe with an evil `const_cast`), so we do not need to modify an undervisor mapping for the source object's address. Furthermore, move constructors operate on rvalues, so we do not need to worry about the source object ( __TODO__ : is this even true? It's possible that something like `std::move` might let us maul an lvalue).
+Finally, we consider move and copy _constructors_ --- in both cases, we are essentially calling a constructor as in the standard case, but with some more specification regarding initial values of the created object. Copy constructors do not affect the source object, so we do not need to modify an undervisor mapping for the source object's address. Move constructors operate on rvalues and provide allow for another object's resources to be "stolen", as long as the source object is still left in some valid state. Therefore, we do not need to worry about the type of an object changing because it is passed to a move constructor.
 
+__Note__: It actually _is_ possible to modify the source object passed to a copy constructor. If you use `const_cast` to remove the const-ness of the input object (or just don't make the input a `const` reference or pointer), it may be possible to affect the original object. However, this is _highly_ unidiomatic and just kind of awful. Besides, this will not affect the type of the enclosing source object, which is what we actually track in the undervisor.
 
-__TODO:__ add more/better code samples in this section
+__Note__: I believe this design also works with C++ smart pointers, since they simply store raw pointers of their template type under the hood.
+
+__Note__: I also believe this design works with overridden constructors and assignment operators (from different types, for instance) --- in the constructor case, the object being constructed determines its type from the class whose constructor is called, and the source object is not deleted; in the assignment operator case, the object being assigned to already has a defined type, and the object being assigned from is not deleted or has its type changed.
 
 
 ###### Alternate proposal: Static Linking Only
@@ -311,37 +315,26 @@ We keep track of the following types of casts:
 
 When we reach a casting instruction, we look up the mapping associated with the source address of the cast. If we are casting to an invalid destination type for that object, the undervisor aborts the top-half code and cleans up. If the virtual address already corresponds to a tracked object and the destination type is _valid_ for that object, then program execution continues normally.
 
-__TODO__: possibly expand on this more
+__Note__: C-style casts are translated to either a `const_cast`, `static_cast`, or `reinterpret_cast` (in that prority). They have their own node type in the Clang AST (`CStyleCastExpr`), but the body of the node contains the same children nodes as if it were of the translated node type anyways. Therefore, we do not need any special-case treatment of C-style casts.
 
 
 ## Limitations, Questions, and Future Work
 
-NESTED OBJECTS??? If a class doesn't have a vtable (e.g. `SimpleDerived3` and `SimpleDerived2`), then the base pointer of its first member variable is the same as the base pointer for the whole object itself!!
+- We do not deal with inline assembly that might affect the types of objects (for instance by manually executing the instructions in the destructor without calling it explicitly).
 
-[Dealing with position-independent code (needed for ASLR), as well as dynamic linking.](#alternate-proposal-static-linking-only)
+- We do not deal with self-modifying code or JITs. As far as I can tell, the existing literature ([HexType](https://acmccs.github.io/papers/p2373-jeonA.pdf) and [CaVer](http://wenke.gtisc.gatech.edu/papers/caver.pdf) do not either).
 
-NOT Multithreading safe
+- [Dealing with position-independent code (needed for ASLR), as well as dynamic linking.](#alternate-proposal-static-linking-only)
 
-Will this approach work for folks who override `operator new` either globally or for a specific class?
+- __TODO__: Avoiding double indirections! Since the bottom-half code does not have access to main memory, we need to have the address of any object we either (de)allocate or cast in a register. I have yet to come upon a case where this is not the case, but if it happens I need to either disable the offending optimization pass or modify it to load addresses into a register for the desired operation (even if the loaded address is discarded as soon as that instruction retires). However, in this case we might have to worry about the CPU trying to be smart and noticing that the loaded value is never actually read and reordering/dropping instructions. This is a bridge we will cross when we need to; I know it is theoretically possible.
 
-TODO: Self-modifying code? JIT? --- does any other solution even keep track of this?
-
-Will this work with placement delete (!) ?
-
-Overloaded assignment operators (like between multiple classes)?
-
-Avoiding double indirections!
-
-Smart pointers???
-
-- Write up (dis)advantages with respect to Caver/HexType
-
-- Do C-style casts get translated into either `const_cast`, `static_cast`, or `reinterpret_cast`, in the Clang AST?
-
-- We do not deal with inline asm LOL
+- __TODO__: A lot of optimization! But only after we have a working prototype.
 
 
 ## Other Notes
 
-We can use the output assembler directives (i.e. disable the "Directives" filter in [godbolt](https://godbolt.org)) to pinpoint specific assembly instructions to their original locations in source files.
+- Assuming the top-half code is thread-safe, our undervisor code should be as well.
 
+- We can use the output assembler directives (i.e. disable the "Directives" filter in [godbolt](https://godbolt.org)) to pinpoint specific assembly instructions to their original locations in source files.
+
+- Like HexType, we provide much more code coverage than CaVer does. We provide the same code coverage as HexType, but with the additional security benefits of running in a separate address space.
