@@ -5,7 +5,7 @@ By [__Savvy Raghuvanshi__](https://savvy.bio), under the guidance of [__Prof. Ja
 ## High level overview
 
 When compiling code, we collect type information metadata and [keep track](#what-does-it-mean-to-actually-keep-track-of-a-code-operation) of code locations where objects are either created or casted between types. Then, at runtime, when one of these code locations is reached, the undervisor does the following:
-- If the instruction corresponds to an allocation, it stores a mapping, where the key is the address of the allocated object and the value is the type of the allocated object
+- If the instruction corresponds to an allocation, it stores a mapping, where the key is the address of the allocated object and the value is the type of the allocated object.
 - If the instruction corresponds to a casting, the undervisor checks whether the source and destination types form a valid cast and terminates the top-half code if not.
 
 The actual type-casting verification strategy is taken from the [HexType paper](https://acmccs.github.io/papers/p2373-jeonA.pdf), while our contribution is the adaption of HexType's strategies to the undervisor. In particular, we address the following challenges:
@@ -15,7 +15,7 @@ The actual type-casting verification strategy is taken from the [HexType paper](
 
 ## Compile-time Operations
 
-While compiling code, we need to know which pairs of source and destination types can be safely casted. To this end, during compile time, we enumerate all the types defined in the program (the compiler has to do this anyways). Furthermore, we analyze the memory layout of all classes defined in the program --- this is useful to enumerate phantom classes, as well as to determine which classes might have objects that share the same base pointer.
+While compiling code, we need to know which pairs of source and destination types can be safely casted. To this end, during compile time, we enumerate all the types defined in the program (the compiler has to do this anyways). Furthermore, we analyze the memory layout of all classes defined in the program --- this is useful to enumerate phantom classes, as well as to determine which classes might have objects that share the same base pointer. In particular, it is useful for us to know the type of the first member object in the class (assuming it doesn't have a vtable pointer at its base) --- we'll see why later.
 
 We also set up a table containing mappings from source types to valid destination types for casts. This table is then loaded into the undervisor when a program begins executing and is referenced during runtime to determine the validity of each cast.
 
@@ -39,7 +39,7 @@ Note that we allow some technically illegal, but practically harmless, casts. Fo
 
 After initialization of a _dyad_ (i.e. combination of a top-half program and its bottom-half monitor), an undervisor's bottom-half program has access only to the registers of the top-half program, as well as a stream of instructions from the top-half as they execute. The undervisor's only ability to interface with top-half code is to prevent an instruction from retiring, consequently killing the program. Therefore, the monitor code is naturally event-driven, with events corresponding to instructions in the top-half and the output being a decision on whether to allow each instruction to retire.
 
-We wish to enforce some security properties --- namely, that the typecasts in the top-half source code are safe --- under these constraints. To that end, it is important for the bottom-half code to know where in the instruction stream these casts occur, what source and destination types are involved, and which object in memory is being casted.
+We wish to enforce some security properties under these constraints --- namely, that the typecasts in the top-half source code are safe. To that end, it is important for the bottom-half code to know where in the instruction stream these casts occur, what source and destination types are involved, and which object in memory is being casted.
 
 During the transformation from source code to machine instructions, we need to preserve the associations between this metadata and locations in the code. These associations are then loaded into the bottom half. During execution, as the instruction pointer (`%rip`) advances, the monitor checks if the instruction is "interesting", and if so it looks up the metadata and performs the desired verifications.
 
@@ -80,14 +80,14 @@ We also ensure that this node is _transparent_ to the compiler --- it does not a
 
 #### LLVM
 
-However, most of Clang's optimizations do not occur at the AST level, but rather within LLVM. To that end, we [create a new type of LLVM Metadata](http://llvm.1065342.n5.nabble.com/creating-new-Metadata-td30085.html). This can then be [programmatically accessed](http://llvm.org/docs/SourceLevelDebugging.html#ccxx-frontend). Note that
+However, most of Clang's optimizations do not occur at the AST level, but rather within LLVM. To that end, we [create a new type of LLVM Metadata](http://llvm.1065342.n5.nabble.com/creating-new-Metadata-td30085.html), which can then be [programmatically accessed](http://llvm.org/docs/SourceLevelDebugging.html#ccxx-frontend). Note that:
 > A transformation is required to drop any metadata attachment that it does not know or know it can’t preserve...
 >
 > Metadata attached to a module using named metadata may not be dropped, with the exception of debug metadata (named metadata with the name !llvm.dbg.*).
 
 (Source: [LLVM Language Reference](https://llvm.org/docs/LangRef.html#metadata-nodes-and-metadata-strings))
 
-Therefore we either need to make all of our undervisor metadata named or alter the LLVM transformations to simply ignore (but not delete) it.
+Therefore we either need to make all of our undervisor metadata named, or we need to alter the LLVM transformations to simply ignore (but not delete) it.
 
 Also, note that while we keep the undervisor metadata if an operation (such as a cast) compiles to a no-op, we want to delete the metadata if its entire basic block is compiled out! In that case, doing any sort of undervisor checks would be incorrect, since the code in question would not even be running.
 
@@ -96,9 +96,9 @@ __TODO__: It is still an open problem for me on how to deal with this optimizati
 
 #### Assembler Output
 
-Each instance of undervisor metadata in the LLVM intermediate representation will eventually be turned into an assembler directive in the code generation step's output. For instance, if the aforementioned undervisor node's body is optimized away, then the generated assembly will just be:
+Each instance of undervisor metadata in the LLVM intermediate representation will eventually be turned into an assembler directive in the code generation step's output. For instance, if the aforementioned undervisor node's body is optimized away, then the generated assembly will just be an assembler directive:
 ```asm
-// static_cast (compiled to no-op)
+# static_cast (compiled to no-op)
 .undervisor.typecasting_verification.static_cast from_addr=%rbx to_type='SimpleDerived1 *'
 ```
 In this example, `%rbx` is the register that contains the address of the source object to be casted, and `SimpleDerived1 *` is the destination type. If we wish to keep track of another code operation (such as a constructor or destructor), we simply adapt the generated undervisor AST node and assembler directive to contain the relevant metadata.
@@ -108,8 +108,8 @@ The code generator's output (a `.S` file) will be passed to a bottom-half code g
 
 ##### More Useful Links
 
-[Overview of Clang Internals](https://cppdepend.com/blog/?p=321)
-[LLVM Debugging Information Format](http://llvm.org/docs/SourceLevelDebugging.html#debugging-information-format)
+- [Overview of Clang Internals](https://cppdepend.com/blog/?p=321)
+- [LLVM Debugging Information Format](http://llvm.org/docs/SourceLevelDebugging.html#debugging-information-format)
 
 
 ### What code operations are we interested in?
@@ -165,11 +165,11 @@ When compiled with `-O2`, it compiles to the following assembly:
 ```asm
 main: # @main
   push rbx
-  // begin allocating memory
+  # begin allocating memory
   mov edi, 40
   call operator new(unsigned long)
-  // end allocating memory
-  // execute constructor body
+  # end allocating memory
+  # execute constructor body
   mov rbx, rax
   call rand
   mov dword ptr [rbx], eax
@@ -177,7 +177,7 @@ main: # @main
   mov qword ptr [rbx + 8], rax
   mov qword ptr [rbx + 16], 0
   mov byte ptr [rbx + 24], 0
-  // end constructor body
+  # end constructor body
   mov eax, dword ptr [rbx]
   pop rbx
   ret
@@ -266,7 +266,7 @@ __Note__: I believe this design also works with C++ smart pointers, since they s
 __Note__: I also believe this design works with overridden constructors and assignment operators (from different types, for instance) --- in the constructor case, the object being constructed determines its type from the class whose constructor is called, and the source object is not deleted; in the assignment operator case, the object being assigned to already has a defined type, and the object being assigned from is not deleted or has its type changed.
 
 
-###### Alternate proposal: Static Linking Only
+###### Temporary proposal: Static Linking Only
 
 Note that if we statically link with `libstdc++`, then we know the virtual address of that call to `operator new` straight from the executable (as well as all of its instructions) before the program is even loaded, and we can prepare the undervisor to watch for a `%rip` equalling that address during top-half execution.
 
@@ -288,7 +288,7 @@ Note that memory allocated with `malloc()` or `calloc()` has to be converted to 
 
 At the site of that cast (or the calling of the constructor via placement new), we keep track of what object type corresponds to that memory address in the usual way.
 
-Notably, we can also easily avoid use-after-free bugs if we [keep track](#what-does-it-mean-to-actually-keep-track-of-a-code-operation) of the arguments to and return values from calls to `malloc()` and `free()`.
+__TODO__: Notably, we can also easily avoid use-after-free bugs if we [keep track](#what-does-it-mean-to-actually-keep-track-of-a-code-operation) of the arguments to and return values from calls to `malloc()` and `free()`. This may be a future work operation that is simple to implement.
 
 
 ##### Stack and Global Allocations
@@ -324,7 +324,7 @@ __Note__: C-style casts are translated to either a `const_cast`, `static_cast`, 
 
 - We do not deal with self-modifying code or JITs. As far as I can tell, the existing literature ([HexType](https://acmccs.github.io/papers/p2373-jeonA.pdf) and [CaVer](http://wenke.gtisc.gatech.edu/papers/caver.pdf) do not either).
 
-- [Dealing with position-independent code (needed for ASLR), as well as dynamic linking.](#alternate-proposal-static-linking-only)
+- __TODO__: [Dealing with position-independent code (needed for ASLR), as well as dynamic linking.](#temporary-proposal-static-linking-only)
 
 - __TODO__: Avoiding double indirections! Since the bottom-half code does not have access to main memory, we need to have the address of any object we either (de)allocate or cast in a register. I have yet to come upon a case where this is not the case, but if it happens I need to either disable the offending optimization pass or modify it to load addresses into a register for the desired operation (even if the loaded address is discarded as soon as that instruction retires). However, in this case we might have to worry about the CPU trying to be smart and noticing that the loaded value is never actually read and reordering/dropping instructions. This is a bridge we will cross when we need to; I know it is theoretically possible.
 
