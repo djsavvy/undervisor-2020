@@ -77,8 +77,27 @@ We simply wrap the cast in a new undervisor node:
 ```
 We also ensure that this node is _transparent_ to the compiler --- it does not affect optimizations or output any top-half instructions. Instead, it simply stores the metadata we want associated with the cast operation (in this case, the source variable and the destination type of the cast). Wherever code is duplicated or inlined, the node gets copied as well, and if its contents are optimized away it will contain an empty body but will not be deleted itself.
 
-Each instance of such a node will eventually be turned into an assembler directive in the code generation step's output. For instance, if the above undervisor node's body is optimized away, then the generated assembly will just be:
-```
+
+#### LLVM
+
+However, most of Clang's optimizations do not occur at the AST level, but rather within LLVM. To that end, we [create a new type of LLVM Metadata](http://llvm.1065342.n5.nabble.com/creating-new-Metadata-td30085.html). This can then be [programmatically accessed](http://llvm.org/docs/SourceLevelDebugging.html#ccxx-frontend). Note that
+> A transformation is required to drop any metadata attachment that it does not know or know it can’t preserve...
+>
+> Metadata attached to a module using named metadata may not be dropped, with the exception of debug metadata (named metadata with the name !llvm.dbg.*).
+
+(Source: [LLVM Language Reference](https://llvm.org/docs/LangRef.html#metadata-nodes-and-metadata-strings))
+
+Therefore we either need to make all of our undervisor metadata named or alter the LLVM transformations to simply ignore (but not delete) it.
+
+Also, note that while we keep the undervisor metadata if an operation (such as a cast) compiles to a no-op, we want to delete the metadata if its entire basic block is compiled out! In that case, doing any sort of undervisor checks would be incorrect, since the code in question would not even be running.
+
+__TODO__: It is still an open problem for me on how to deal with this optimization case --- I think it would entail modifying the optimization passes that are able to delete entire basic blocks, but I'm not 100% sure.
+
+
+#### Assembler Output
+
+Each instance of undervisor metadata in the LLVM intermediate representation will eventually be turned into an assembler directive in the code generation step's output. For instance, if the aforementioned undervisor node's body is optimized away, then the generated assembly will just be:
+```asm
 // static_cast (compiled to no-op)
 .undervisor.typecasting_verification.static_cast from_addr=%rbx to_type='SimpleDerived1 *'
 ```
